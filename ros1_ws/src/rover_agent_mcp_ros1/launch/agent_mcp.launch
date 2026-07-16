@@ -1,0 +1,4 @@
+<launch>
+  <node pkg="rover_agent_mcp_ros1" type="rover_mcp_server.py" name="rover_mcp_server" output="screen" />
+  <node pkg="rover_agent_mcp_ros1" type="agent_text_node.py" name="rover_agent_text_node" output="screen" />
+</launch>

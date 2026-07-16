@@ -1,0 +1,1 @@
+<launch><node pkg="fleet_text_bridge_ros1" type="bridge_node.py" name="fleet_text_bridge" output="screen" /></launch>
