@@ -1,0 +1,4 @@
+<launch>
+  <node pkg="drone_agent_mcp_ros1" type="drone_mcp_server.py" name="drone_mcp_server" output="screen" />
+  <node pkg="drone_agent_mcp_ros1" type="agent_text_node.py" name="drone_agent_text_node" output="screen" />
+</launch>

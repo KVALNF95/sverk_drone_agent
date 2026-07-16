@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class CommandContext:
     """Correlation metadata kept outside the LLM-visible command text."""
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Dict, Optional, Union
 
 
-def decode_json_object(payload: str | bytes) -> dict[str, Any]:
+def decode_json_object(payload: Union[str, bytes]) -> Dict[str, Any]:
     if isinstance(payload, bytes):
         payload = payload.decode("utf-8")
     value = json.loads(payload)
@@ -13,15 +13,15 @@ def decode_json_object(payload: str | bytes) -> dict[str, Any]:
     return value
 
 
-def validate_command(data: dict[str, Any], expected_robot_id: str) -> None:
+def validate_command(data: Dict[str, Any], expected_robot_id: str) -> None:
     for key in ("message_id", "robot_id", "text"):
         if not isinstance(data.get(key), str) or not data[key].strip():
-            raise ValueError(f"Missing or invalid {key}")
+            raise ValueError("Missing or invalid %s" % key)
     if data["robot_id"] != expected_robot_id:
         raise ValueError("robot_id does not match bridge configuration")
 
 
-def _best_text(data: dict[str, Any], raw_payload: str) -> str:
+def _best_text(data: Dict[str, Any], raw_payload: str) -> str:
     for key in ("text", "message", "reply", "answer"):
         value = data.get(key)
         if isinstance(value, str) and value.strip():
@@ -38,22 +38,14 @@ def normalize_agent_payload(
     payload: str,
     *,
     expected_robot_id: str,
-    active_message_id: str | None,
+    active_message_id: Optional[str],
     answer: bool,
-) -> dict[str, str]:
-    """Normalize new protocol envelopes and legacy agent output.
+) -> Dict[str, str]:
+    """Normalize protocol envelopes and legacy plain-text ROS output.
 
-    New `rover_agent_mcp` versions already publish a complete JSON envelope.
-    For backward compatibility, this function also accepts:
-
-    * a plain-text `/agent/answer`;
-    * an old JSON status such as `{"event":"thinking", ...}`;
-    * JSON missing `message_id` and/or `robot_id` while one command is active.
-
-    Legacy output can only be correlated safely when the bridge has exactly one
-    active command, which is why the bridge serializes dispatch to the agent.
+    The bridge serializes commands, so an old agent response without message_id
+    can be safely associated with the one active server command.
     """
-
     raw = str(payload or "").strip()
     if not raw:
         raise ValueError("ROS payload is empty")
@@ -63,12 +55,7 @@ def normalize_agent_payload(
     except json.JSONDecodeError:
         parsed = None
 
-    data: dict[str, Any]
-    if isinstance(parsed, dict):
-        data = parsed
-    else:
-        data = {"text": raw}
-
+    data = parsed if isinstance(parsed, dict) else {"text": raw}
     supplied_robot_id = data.get("robot_id")
     if supplied_robot_id not in (None, "", expected_robot_id):
         raise ValueError("robot_id does not match bridge configuration")
@@ -85,12 +72,7 @@ def normalize_agent_payload(
         if status not in ("completed", "error"):
             event = str(data.get("event") or "").lower()
             lowered = text.lower()
-            status = (
-                "error"
-                if event in {"error", "busy", "failed"}
-                or lowered.startswith("ошибка")
-                else "completed"
-            )
+            status = "error" if event in {"error", "busy", "failed"} or lowered.startswith("ошибка") else "completed"
     else:
         status = data.get("status")
         if not isinstance(status, str) or not status.strip():
@@ -105,17 +87,11 @@ def normalize_agent_payload(
     }
 
 
-def validate_outgoing(
-    data: dict[str, Any],
-    expected_robot_id: str,
-    *,
-    answer: bool,
-) -> None:
+def validate_outgoing(data: Dict[str, Any], expected_robot_id: str, *, answer: bool) -> None:
     if data.get("robot_id") != expected_robot_id:
         raise ValueError("robot_id does not match bridge configuration")
-    required = ("message_id", "robot_id", "status", "text")
-    for key in required:
+    for key in ("message_id", "robot_id", "status", "text"):
         if not isinstance(data.get(key), str):
-            raise ValueError(f"Missing or invalid {key}")
+            raise ValueError("Missing or invalid %s" % key)
     if answer and data["status"] not in {"completed", "error"}:
         raise ValueError("Answer status must be completed or error")

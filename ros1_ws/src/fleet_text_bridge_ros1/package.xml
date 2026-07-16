@@ -1,1 +1,12 @@
-<?xml version="1.0"?><package format="2"><name>fleet_text_bridge_ros1</name><version>1.0.0</version><description>MQTT to ROS1 text bridge.</description><maintainer email="maintainer@example.com">SVERH</maintainer><license>MIT</license><buildtool_depend>catkin</buildtool_depend><depend>rospy</depend><depend>std_msgs</depend><exec_depend>python3-paho-mqtt</exec_depend></package>
+<?xml version="1.0"?>
+<package format="2">
+  <name>fleet_text_bridge_ros1</name>
+  <version>1.1.0</version>
+  <description>MQTT to ROS 1 bridge for SVERH AI Agents server.</description>
+  <maintainer email="maintainer@example.com">SVERH</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <exec_depend>python3-paho-mqtt</exec_depend>
+</package>

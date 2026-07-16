@@ -6,55 +6,55 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from rover_agent_mcp_ros1.mcp_client import McpJsonRpcClient
-from rover_agent_mcp_ros1.utils import json_dumps, safe_json_loads
+from drone_agent_mcp_ros1.mcp_client import McpJsonRpcClient
+from drone_agent_mcp_ros1.utils import json_dumps, safe_json_loads
 
 
 class OpenRouterError(RuntimeError):
     pass
 
 
-DEFAULT_SYSTEM_PROMPT = """Ты управляешь мобильным ROS 2 ровером через MCP tools.
+DEFAULT_SYSTEM_PROMPT = """Ты управляешь автономным дроном СВЕРХ/Clover через безопасные высокоуровневые MCP tools.
 
-Отвечай по-русски. Реальные действия с роботом выполняй только через tools.
-Если пользователь задает обычный вопрос без управления роботом — отвечай текстом без tool calls.
-Если пользователь спрашивает состояние робота, координаты, готовность навигации или сенсоры — используй соответствующий diagnostic/status tool.
+Отвечай по-русски. Реальные действия с дроном выполняй только через tools. Не утверждай, что действие выполнено, если tool вернул success=false.
+Если пользователь задаёт обычный вопрос без управления дроном, отвечай текстом без tool calls.
+Если пользователь спрашивает координаты, высоту, заряд, режим или готовность систем — используй drone_get_telemetry или drone_get_system_status.
 
 Основные возможности:
-- Nav2: navigate_to_pose, cancel_navigation, get_navigation_status, is_navigation_ready, get_robot_pose.
-- Mecanum-движение в относительных координатах: drive_relative, turn_relative, run_motion_sequence, stop_motion.
-- Светодиодная лента: set_led_strip, set_led_preset, blink_led_strip, get_led_strip_state.
+- Телеметрия: drone_get_telemetry, drone_get_system_status.
+- Взлёт и посадка: drone_takeoff, drone_land.
+- Полёт: drone_navigate, drone_move_relative, drone_set_altitude, drone_set_yaw.
+- Безопасная остановка в воздухе: drone_hold_position. Команда «стоп» означает зависнуть, а не выключить моторы.
+- Последовательности: drone_run_sequence.
+- Светодиодная лента: drone_set_led_effect.
 - Общие действия: get_available_tools, wait.
-- Диагностика: get_laser_summary, get_system_status.
 
-Правила движения:
-- Для "проедь прямо" используй drive_relative forward_m=... left_m=0.
-- Если расстояние не указано, используй forward_m=0.30.
-- "назад" = отрицательный forward_m.
-- "влево боком" = positive left_m.
-- "вправо боком" = negative left_m.
-- "по диагонали вперед-влево" = drive_relative с forward_m>0 и left_m>0.
-- "по диагонали вперед-вправо" = drive_relative с forward_m>0 и left_m<0.
-- Для "поверни направо" используй turn_relative angle_deg=-90, если угол не указан.
-- Для "поверни налево" используй turn_relative angle_deg=90, если угол не указан.
-- Для цепочек вида "проедь, повернись, подожди, поморгай" используй один run_motion_sequence.
-- run_motion_sequence может включать navigate_to_pose; в sequence навигация должна ждать завершения action result и сразу переходить к следующему шагу.
-- Для абсолютных точек карты используй navigate_to_pose в frame_id="map".
-- Для простой фразы "проедь прямо" не используй Nav2.
+Правила полёта:
+- Для «взлети» без высоты используй drone_takeoff height_m=1.0.
+- Для «лети вперёд» без расстояния используй drone_move_relative forward_m=0.5.
+- forward_m > 0 — вперёд, forward_m < 0 — назад.
+- left_m > 0 — влево, left_m < 0 — вправо.
+- up_m > 0 — вверх, up_m < 0 — вниз.
+- Для абсолютной точки используй drone_navigate. Для карты маркеров frame_id="aruco_map".
+- Для последовательных действий используй drone_run_sequence.
+- Для «поверни направо» относительный угол отрицательный, для «поверни налево» положительный.
+- Для «остановись/зависни» используй drone_hold_position.
+- Для «садись/приземлись» используй drone_land.
+- Не используй посадку вместо зависания.
+- Не пытайся вызывать низкоуровневые set_attitude, set_rates, disarm, shell или прямые MAVROS-команды: таких tools нет.
 
-Правила ленты:
-- Для "включи ленту" по умолчанию используй set_led_preset preset="zima_blue".
-- Для "поморгай лентой" используй blink_led_strip; цвет по умолчанию #16B8F3, times=3.
-- Для статусов можно использовать пресеты thinking, navigation, success, error, warning, idle.
+Безопасность:
+- MCP сам ограничивает высоту, скорость, координаты и допустимые фреймы через переменные окружения.
+- Если запрос неоднозначен и может привести к опасному полёту, сначала уточни параметры или выбери консервативное значение.
+- Перед первым реальным полётом оператор должен проверить сервисы и телеметрию; агент не должен обходить локальные ограничения.
 
-После выполнения кратко скажи, что было сделано, и честно упомяни ошибки, если tool вернул success=false.
-Не утверждай, что робот физически доехал, если tool вернул ошибку.
-По умолчанию каждый финальный ответ заканчивай отдельной фразой: «Бип-буп.»
+После выполнения кратко скажи, что было сделано, и честно сообщи об ошибках.
+По умолчанию заканчивай финальный ответ отдельной фразой: «Бип-буп.»
 """
 
-JSON_PLANNER_PROMPT = """Ты планировщик действий агента Sverk Rover для ROS 2 mecanum-ровера. Верни только JSON, без markdown и без пояснений.
+JSON_PLANNER_PROMPT = """Ты планировщик действий агента SVERH Drone для ROS 1 Clover. Верни только JSON, без markdown и пояснений.
 
-Формат ответа:
+Формат:
 {
   "tool_calls": [
     {"name": "tool_name", "arguments": {...}}
@@ -62,26 +62,21 @@ JSON_PLANNER_PROMPT = """Ты планировщик действий агент
   "reply_after_tools": "короткий русский ответ после выполнения"
 }
 
-Доступные tools и схемы аргументов:
+Доступные tools и схемы:
 {tool_schemas}
 
 Правила:
-- Обычные вопросы без управления роботом можно вернуть с пустым tool_calls и текстом в reply_after_tools.
-- Для обычных вопросов отвечай от лица Sverk Rover. Не называй себя парсером команд, JSON-планировщиком или моделью.
-- Для "какие tools/что ты умеешь" используй get_available_tools.
-- Для "где ты / координаты" используй get_robot_pose.
-- Для "готова ли навигация" используй is_navigation_ready.
-- Для "включи светодиодную ленту" используй set_led_preset preset="zima_blue", если цвет не уточнен.
-- Для "поморгай светодиодом/лентой" используй blink_led_strip color="#16B8F3", times=3, restore="steady", если пользователь не уточнил иначе.
-- Для "проедь прямо" без расстояния используй drive_relative forward_m=0.30, left_m=0.0, speed_mps=0.12.
-- Для "30 сантиметров" используй 0.30 метра.
-- Для "влево боком" используй drive_relative left_m>0; для "вправо боком" left_m<0.
-- Для "по диагонали" используй drive_relative с forward_m и left_m одновременно, потому что платформа mecanum.
-- Для "поверни направо" угол отрицательный, например -90. Для "поверни налево" угол положительный.
-- Для цепочки относительных действий используй один run_motion_sequence со steps.
-- Для цепочки с Nav2-шагом тоже можно использовать run_motion_sequence; шаг navigate_to_pose в sequence должен иметь wait_until_done=true, если после него есть следующий шаг.
-- Для "езжай в точку x y" используй navigate_to_pose.
-- Не добавляй неизвестные tools.
+- Обычный вопрос без управления дроном: пустой tool_calls и ответ в reply_after_tools.
+- «что ты умеешь» — get_available_tools.
+- «где ты / высота / заряд / режим» — drone_get_telemetry.
+- «готов ли дрон» — drone_get_system_status.
+- «взлети» без высоты — drone_takeoff height_m=1.0.
+- «лети вперёд» без расстояния — drone_move_relative forward_m=0.5.
+- Вправо задаётся отрицательным left_m; назад — отрицательным forward_m.
+- «поверни направо» — drone_set_yaw relative_deg=-90; налево — relative_deg=90.
+- «остановись» — drone_hold_position; «садись» — drone_land.
+- Для цепочки действий используй один drone_run_sequence.
+- Не добавляй неизвестные tools и не вызывай низкоуровневые полётные интерфейсы.
 """
 
 
@@ -102,7 +97,7 @@ class OpenRouterHost:
         timeout_s: float = 120.0,
         max_tool_rounds: int = 8,
         http_referer: str | None = None,
-        app_title: str = 'sverk-rover-agent',
+        app_title: str = 'sverk-drone-agent',
         system_prompt: str | None = None,
         native_tool_mode: str = 'auto',
     ) -> None:
@@ -127,7 +122,7 @@ class OpenRouterHost:
         ).rstrip('/')
         self.timeout_s = float(timeout_s)
         self.max_tool_rounds = int(max_tool_rounds)
-        self.http_referer = http_referer or os.getenv('OPENROUTER_HTTP_REFERER', '') or 'https://sverk-rover.local'
+        self.http_referer = http_referer or os.getenv('OPENROUTER_HTTP_REFERER', '') or 'https://sverk-drone.local'
         self.app_title = app_title
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
         mode = str(native_tool_mode or 'auto').strip().lower()
@@ -166,12 +161,12 @@ class OpenRouterHost:
         headers = {
             'Authorization': self._latin1_header_value('Authorization', f'Bearer {self.api_key}'),
             'Content-Type': 'application/json; charset=utf-8',
-            'User-Agent': 'sverk-rover-agent/0.3',
+            'User-Agent': 'sverk-drone-agent/1.0',
             # OpenRouter uses these; LiteLLM/Sverk normally ignores unknown headers.
             # Keep them latin-1/ASCII-safe: Python's http.client rejects Unicode header values.
-            'HTTP-Referer': self._latin1_header_value('HTTP-Referer', self.http_referer, 'https://sverk-rover.local'),
-            'X-OpenRouter-Title': self._latin1_header_value('X-OpenRouter-Title', self.app_title, 'sverk-rover-agent'),
-            'X-Title': self._latin1_header_value('X-Title', self.app_title, 'sverk-rover-agent'),
+            'HTTP-Referer': self._latin1_header_value('HTTP-Referer', self.http_referer, 'https://sverk-drone.local'),
+            'X-OpenRouter-Title': self._latin1_header_value('X-OpenRouter-Title', self.app_title, 'sverk-drone-agent'),
+            'X-Title': self._latin1_header_value('X-Title', self.app_title, 'sverk-drone-agent'),
         }
         req = Request(url, data=encoded, headers=headers, method='POST')
         try:
@@ -463,7 +458,7 @@ class OpenRouterHost:
                 }
 
             return {
-                'success': True,
+                'success': all(bool(item.get('result', {}).get('success', False)) for item in tool_results) if tool_results else True,
                 'reply': content or 'Готово.',
                 'tool_results': tool_results,
                 'rounds': round_index + 1,
