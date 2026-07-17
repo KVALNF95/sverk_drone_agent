@@ -17,3 +17,13 @@ Launch:
 ```bash
 roslaunch fleet_text_bridge_ros1 bridge.launch
 ```
+
+Combined stacks:
+
+```bash
+roslaunch fleet_text_bridge_ros1 drone_agent_stack.launch
+```
+
+```bash
+roslaunch fleet_text_bridge_ros1 drone_pseudo_agent_stack.launch
+```

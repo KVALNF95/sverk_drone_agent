@@ -67,3 +67,10 @@ export DRONE_ALLOWED_FRAMES='map,body,aruco_map,navigate_target,terrain'
 export DRONE_ENABLE_FLIGHT_TOOLS='0'
 export DRONE_ALLOW_LAND_WHEN_DISABLED='1'
 export DRONE_LAND_ON_SEQUENCE_ERROR='0'
+
+# Pseudo-agent (rule-based, no LLM)
+export PSEUDO_TAKEOFF_HEIGHT_M='0.8'
+export PSEUDO_MOVE_SPEED_MPS='0.5'
+export PSEUDO_LAND_WAIT_UNTIL_DISARMED='0'
+export CHESS_CELL_SIZE_M='0.4'
+export CHESS_SIDE='white'

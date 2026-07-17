@@ -1,0 +1,4 @@
+<launch>
+  <include file="$(find fleet_text_bridge_ros1)/launch/bridge.launch" />
+  <include file="$(find drone_pseudo_agent_ros1)/launch/pseudo_agent.launch" />
+</launch>

@@ -1,9 +1,10 @@
 # SVERH Clover Drone Agent ROS 1 — v1.0.0
 
-Архив содержит **ровно два ROS 1 пакета**:
+Архив содержит **три ROS 1 пакета**:
 
 1. `fleet_text_bridge_ros1` — подключение к серверу СВЕРХ AI Agents по MQTT;
 2. `drone_agent_mcp_ros1` — текстовый LLM-агент и MCP-сервер с высокоуровневыми инструментами SVERH/Clover.
+3. `drone_pseudo_agent_ros1` — rule-based pseudo-agent без LLM для простых относительных и шахматных команд.
 
 ## Архитектура
 
@@ -137,6 +138,12 @@ source ~/sverk-clover-drone-ros1-v1.0.0/ros1_ws/devel/setup.bash
 roslaunch fleet_text_bridge_ros1 drone_agent_stack.launch
 ```
 
+Для pseudo-agent без LLM:
+
+```bash
+roslaunch fleet_text_bridge_ros1 drone_pseudo_agent_stack.launch
+```
+
 Либо отдельно:
 
 ```bash
@@ -145,6 +152,10 @@ roslaunch fleet_text_bridge_ros1 bridge.launch
 
 ```bash
 roslaunch drone_agent_mcp_ros1 agent_mcp.launch
+```
+
+```bash
+roslaunch drone_pseudo_agent_ros1 pseudo_agent.launch
 ```
 
 Не запускайте второй экземпляр MCP на том же `MCP_PORT`.

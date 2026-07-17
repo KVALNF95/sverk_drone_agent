@@ -1,0 +1,3 @@
+<launch>
+  <node pkg="drone_pseudo_agent_ros1" type="pseudo_agent_text_node.py" name="drone_pseudo_agent_text_node" output="screen" />
+</launch>
