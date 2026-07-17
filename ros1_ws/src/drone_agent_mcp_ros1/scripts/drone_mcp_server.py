@@ -31,7 +31,7 @@ class McpHttpHandler(BaseHTTPRequestHandler):
                     "name": "drone_mcp_server_ros1",
                     "robot_id": os.getenv("FLEET_ROBOT_ID", "drone-01"),
                     "flight_tools_requested": os.getenv("DRONE_ENABLE_FLIGHT_TOOLS", "0") == "1",
-                    "safety_approval_topic": os.getenv("DRONE_SAFETY_APPROVAL_TOPIC", "/safety/flight_allowed"),
+                    "land_on_sequence_error": os.getenv("DRONE_LAND_ON_SEQUENCE_ERROR", "0") == "1",
                 },
             )
             return

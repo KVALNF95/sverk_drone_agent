@@ -1,6 +1,123 @@
 from copy import deepcopy
 
 
+def _const_string_schema(value):
+    return {"type": "string", "const": value}
+
+
+SEQUENCE_STEP_SCHEMAS = {
+    "drone_takeoff": {
+        "type": "object",
+        "properties": {
+            "type": _const_string_schema("drone_takeoff"),
+            "height_m": {"type": "number"},
+            "speed_mps": {"type": "number"},
+            "wait": {"type": "boolean"},
+            "tolerance_m": {"type": "number"},
+            "timeout_s": {"type": "number"},
+        },
+        "required": ["type"],
+        "additionalProperties": False,
+    },
+    "drone_navigate": {
+        "type": "object",
+        "properties": {
+            "type": _const_string_schema("drone_navigate"),
+            "x": {"type": "number"},
+            "y": {"type": "number"},
+            "z": {"type": "number"},
+            "frame_id": {"type": "string"},
+            "speed_mps": {"type": "number"},
+            "yaw_deg": {"type": ["number", "null"]},
+            "wait": {"type": "boolean"},
+            "tolerance_m": {"type": "number"},
+            "timeout_s": {"type": "number"},
+        },
+        "required": ["type", "x", "y", "z"],
+        "additionalProperties": False,
+    },
+    "drone_move_relative": {
+        "type": "object",
+        "properties": {
+            "type": _const_string_schema("drone_move_relative"),
+            "forward_m": {"type": "number"},
+            "left_m": {"type": "number"},
+            "up_m": {"type": "number"},
+            "speed_mps": {"type": "number"},
+            "yaw_deg": {"type": ["number", "null"]},
+            "wait": {"type": "boolean"},
+            "tolerance_m": {"type": "number"},
+            "timeout_s": {"type": "number"},
+        },
+        "required": ["type"],
+        "additionalProperties": False,
+    },
+    "drone_set_altitude": {
+        "type": "object",
+        "properties": {
+            "type": _const_string_schema("drone_set_altitude"),
+            "z": {"type": "number"},
+            "frame_id": {"type": "string"},
+        },
+        "required": ["type", "z"],
+        "additionalProperties": False,
+    },
+    "drone_set_yaw": {
+        "type": "object",
+        "properties": {
+            "type": _const_string_schema("drone_set_yaw"),
+            "yaw_deg": {"type": ["number", "null"]},
+            "relative_deg": {"type": ["number", "null"]},
+            "frame_id": {"type": "string"},
+        },
+        "required": ["type"],
+        "anyOf": [{"required": ["yaw_deg"]}, {"required": ["relative_deg"]}],
+        "additionalProperties": False,
+    },
+    "drone_hold_position": {
+        "type": "object",
+        "properties": {
+            "type": _const_string_schema("drone_hold_position"),
+            "frame_id": {"type": "string"},
+        },
+        "required": ["type"],
+        "additionalProperties": False,
+    },
+    "drone_set_led_effect": {
+        "type": "object",
+        "properties": {
+            "type": _const_string_schema("drone_set_led_effect"),
+            "effect": {"type": "string"},
+            "color": {"type": "string"},
+            "r": {"type": ["integer", "null"]},
+            "g": {"type": ["integer", "null"]},
+            "b": {"type": ["integer", "null"]},
+        },
+        "required": ["type"],
+        "additionalProperties": False,
+    },
+    "wait": {
+        "type": "object",
+        "properties": {
+            "type": _const_string_schema("wait"),
+            "duration_s": {"type": "number"},
+        },
+        "required": ["type"],
+        "additionalProperties": False,
+    },
+    "drone_land": {
+        "type": "object",
+        "properties": {
+            "type": _const_string_schema("drone_land"),
+            "wait_until_disarmed": {"type": "boolean"},
+            "timeout_s": {"type": "number"},
+        },
+        "required": ["type"],
+        "additionalProperties": False,
+    },
+}
+
+
 TOOL_SCHEMAS = [
     {
         "name": "get_available_tools",
@@ -171,42 +288,7 @@ TOOL_SCHEMAS = [
                     "type": "array",
                     "minItems": 1,
                     "maxItems": 20,
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "type": {
-                                "type": "string",
-                                "enum": [
-                                    "drone_takeoff", "drone_navigate", "drone_move_relative",
-                                    "drone_set_altitude", "drone_set_yaw", "drone_hold_position",
-                                    "drone_set_led_effect", "wait", "drone_land"
-                                ],
-                            },
-                            "height_m": {"type": "number"},
-                            "speed_mps": {"type": "number"},
-                            "wait": {"type": "boolean"},
-                            "tolerance_m": {"type": "number"},
-                            "timeout_s": {"type": "number"},
-                            "x": {"type": "number"},
-                            "y": {"type": "number"},
-                            "z": {"type": "number"},
-                            "frame_id": {"type": "string"},
-                            "yaw_deg": {"type": ["number", "null"]},
-                            "relative_deg": {"type": ["number", "null"]},
-                            "forward_m": {"type": "number"},
-                            "left_m": {"type": "number"},
-                            "up_m": {"type": "number"},
-                            "duration_s": {"type": "number"},
-                            "effect": {"type": "string"},
-                            "color": {"type": "string"},
-                            "r": {"type": ["integer", "null"]},
-                            "g": {"type": ["integer", "null"]},
-                            "b": {"type": ["integer", "null"]},
-                            "wait_until_disarmed": {"type": "boolean"},
-                        },
-                        "required": ["type"],
-                        "additionalProperties": False,
-                    },
+                    "items": {"oneOf": [deepcopy(schema) for schema in SEQUENCE_STEP_SCHEMAS.values()]},
                 },
                 "stop_on_error": {"type": "boolean", "default": True},
             },
@@ -223,3 +305,10 @@ def mcp_tools():
 
 def tool_names():
     return {item["name"] for item in TOOL_SCHEMAS}
+
+
+def sequence_step_argument_names(step_type):
+    schema = SEQUENCE_STEP_SCHEMAS.get(step_type)
+    if not schema:
+        return set()
+    return {name for name in schema["properties"] if name != "type"}

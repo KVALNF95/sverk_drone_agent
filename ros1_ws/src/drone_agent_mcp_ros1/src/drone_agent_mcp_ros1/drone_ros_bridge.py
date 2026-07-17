@@ -8,11 +8,10 @@ import time
 import traceback
 
 import rospy
-from std_msgs.msg import Bool
 from std_srvs.srv import Trigger
 
 from drone_agent_mcp_ros1.safety import DroneSafetyLimits, env_bool, finite_float
-from drone_agent_mcp_ros1.tool_schemas import mcp_tools
+from drone_agent_mcp_ros1.tool_schemas import mcp_tools, sequence_step_argument_names
 from drone_agent_mcp_ros1.utils import clamp, clamp_int, normalize_effect, parse_bool, parse_color
 
 
@@ -69,10 +68,8 @@ class DroneRos1Bridge:
         self.limits = DroneSafetyLimits()
         self.flight_requested = env_bool("DRONE_ENABLE_FLIGHT_TOOLS", False)
         self.allow_land_when_disabled = env_bool("DRONE_ALLOW_LAND_WHEN_DISABLED", True)
-        self.safety_topic = os.getenv("DRONE_SAFETY_APPROVAL_TOPIC", "/safety/flight_allowed")
-        self.safety_approved = False
+        self.land_on_sequence_error = env_bool("DRONE_LAND_ON_SEQUENCE_ERROR", False)
         self.lock = threading.RLock()
-        rospy.Subscriber(self.safety_topic, Bool, self._on_safety_approval, queue_size=1)
 
         self.service_names = {
             "telemetry": os.getenv("DRONE_GET_TELEMETRY_SERVICE", "get_telemetry"),
@@ -95,21 +92,9 @@ class DroneRos1Bridge:
         )
         if not self.flight_requested:
             rospy.logwarn("Flight commands are administratively locked by DRONE_ENABLE_FLIGHT_TOOLS=0.")
-        rospy.logwarn(
-            "Physical flight also requires independent approval on %s. This package never publishes that approval.",
-            self.safety_topic,
-        )
-
-    def _on_safety_approval(self, msg):
-        with self.lock:
-            self.safety_approved = bool(msg.data)
-        if self.safety_approved:
-            rospy.logwarn("Independent flight approval is ACTIVE on %s", self.safety_topic)
-        else:
-            rospy.loginfo("Independent flight approval is inactive")
 
     def _flight_enabled(self):
-        return bool(self.flight_requested and self.safety_approved)
+        return bool(self.flight_requested)
 
     def _build_proxies(self):
         if flight_srv is not None:
@@ -165,10 +150,15 @@ class DroneRos1Bridge:
             return None
         return {
             "success": False,
-            "error": (
-                "%s is locked. It requires both DRONE_ENABLE_FLIGHT_TOOLS=1 and independent approval on %s."
-            ) % (action, self.safety_topic),
+            "error": "%s is locked. Set DRONE_ENABLE_FLIGHT_TOOLS=1 to allow flight tools." % action,
         }
+
+    def _filtered_sequence_arguments(self, step_type, step):
+        allowed_arguments = sequence_step_argument_names(step_type)
+        if not allowed_arguments:
+            return dict(step), []
+        ignored = sorted(name for name in step if name not in allowed_arguments)
+        return {name: value for name, value in step.items() if name in allowed_arguments}, ignored
 
     def call_tool(self, name, arguments=None):
         aliases = {
@@ -198,9 +188,8 @@ class DroneRos1Bridge:
             "platform": "SVERH/Clover",
             "service_package": FLIGHT_SERVICE_PACKAGE,
             "flight_tools_requested": self.flight_requested,
-            "safety_approved": self.safety_approved,
             "flight_tools_enabled": self._flight_enabled(),
-            "safety_approval_topic": self.safety_topic,
+            "land_on_sequence_error": self.land_on_sequence_error,
         }
 
     def wait(self, duration_s=1.0):
@@ -236,9 +225,8 @@ class DroneRos1Bridge:
             "success": True,
             "ready_for_flight_commands": bool(ready and self._flight_enabled()),
             "flight_tools_requested": self.flight_requested,
-            "safety_approved": self.safety_approved,
             "flight_tools_enabled": self._flight_enabled(),
-            "safety_approval_topic": self.safety_topic,
+            "land_on_sequence_error": self.land_on_sequence_error,
             "telemetry_connected": connected,
             "armed": telemetry.get("armed"),
             "mode": telemetry.get("mode"),
@@ -553,12 +541,47 @@ class DroneRos1Bridge:
             if step_type not in allowed:
                 result = {"success": False, "error": "Unsupported sequence step: %s" % step_type}
             else:
-                result = self.call_tool(step_type, step)
+                filtered_step, ignored_arguments = self._filtered_sequence_arguments(step_type, step)
+                result = self.call_tool(step_type, filtered_step)
+                if ignored_arguments:
+                    result = dict(result)
+                    result["ignored_arguments"] = ignored_arguments
+                    rospy.logwarn(
+                        "Ignoring unsupported arguments for sequence step %s: %s",
+                        step_type,
+                        ", ".join(ignored_arguments),
+                    )
             result = dict(result)
             result.update({"step_index": index, "step_type": step_type})
             results.append(result)
             if parse_bool(stop_on_error, True) and not result.get("success"):
-                # Hold is safer than silently continuing. Never auto-land on a generic tool error.
+                successful_takeoff = any(
+                    item.get("step_type") == "drone_takeoff" and bool(item.get("success"))
+                    for item in results
+                )
+                if self.land_on_sequence_error and successful_takeoff:
+                    landing_result = self.drone_land(wait_until_disarmed=False)
+                    if landing_result.get("success"):
+                        return {
+                            "success": False,
+                            "results": results,
+                            "sequence_error_action": "land",
+                            "sequence_error_land": landing_result,
+                        }
+                    hold_result = self.drone_hold_position()
+                    return {
+                        "success": False,
+                        "results": results,
+                        "sequence_error_action": "land_then_hold",
+                        "sequence_error_land": landing_result,
+                        "safety_hold": hold_result,
+                    }
+                # Hold is safer than silently continuing when we stay airborne after an error.
                 hold_result = self.drone_hold_position()
-                return {"success": False, "results": results, "safety_hold": hold_result}
+                return {
+                    "success": False,
+                    "results": results,
+                    "sequence_error_action": "hold",
+                    "safety_hold": hold_result,
+                }
         return {"success": True, "results": results}

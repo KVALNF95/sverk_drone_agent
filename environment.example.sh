@@ -63,9 +63,7 @@ export DRONE_REQUIRE_CONNECTED='1'
 export DRONE_MIN_TAKEOFF_VOLTAGE_V='0'
 export DRONE_ALLOWED_FRAMES='map,body,aruco_map,navigate_target,terrain'
 
-# Flight commands require BOTH this administrative request and an independent
-# safety-controller approval on DRONE_SAFETY_APPROVAL_TOPIC. This package does
-# not publish approval itself.
+# Flight commands are enabled only when explicitly requested by the operator.
 export DRONE_ENABLE_FLIGHT_TOOLS='0'
-export DRONE_SAFETY_APPROVAL_TOPIC='/safety/flight_allowed'
 export DRONE_ALLOW_LAND_WHEN_DISABLED='1'
+export DRONE_LAND_ON_SEQUENCE_ERROR='0'
