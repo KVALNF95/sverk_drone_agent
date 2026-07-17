@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from typing import Union
 
 
 class CommandParseError(ValueError):
@@ -50,16 +51,16 @@ class StatusCommand:
     pass
 
 
-COMMAND_TYPE = (
-    InitializeCellCommand
-    | ChessFlightCommand
-    | RelativeFlightCommand
-    | TakeoffCommand
-    | LandCommand
-    | HoldCommand
-    | TelemetryCommand
-    | StatusCommand
-)
+COMMAND_TYPE = Union[
+    InitializeCellCommand,
+    ChessFlightCommand,
+    RelativeFlightCommand,
+    TakeoffCommand,
+    LandCommand,
+    HoldCommand,
+    TelemetryCommand,
+    StatusCommand,
+]
 
 
 CELL_RE = r"([a-h][1-8])"
