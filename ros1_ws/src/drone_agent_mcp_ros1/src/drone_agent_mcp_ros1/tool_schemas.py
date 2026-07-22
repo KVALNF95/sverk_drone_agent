@@ -195,6 +195,23 @@ TOOL_SCHEMAS = [
         },
     },
     {
+        "name": "drone_navigate_to_chess_cell",
+        "description": "Take off if needed, localize in aruco_map, then fly along the chessboard axes to the target cell a1..h8 and optionally land.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "cell": {"type": "string", "pattern": "^[a-h][1-8]$"},
+                "takeoff_height_m": {"type": ["number", "null"], "default": None},
+                "flight_altitude_m": {"type": ["number", "null"], "default": None},
+                "speed_mps": {"type": "number", "default": 0.5},
+                "land_after": {"type": "boolean", "default": True},
+                "wait_for_map_s": {"type": "number", "default": 10.0},
+            },
+            "required": ["cell"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "drone_move_relative",
         "description": "Move relative to the drone body: +forward, +left, +up. Negative values move backward/right/down.",
         "inputSchema": {

@@ -23,7 +23,7 @@ DEFAULT_SYSTEM_PROMPT = """Ты управляешь автономным дро
 Основные возможности:
 - Телеметрия: drone_get_telemetry, drone_get_system_status.
 - Взлёт и посадка: drone_takeoff, drone_land.
-- Полёт: drone_navigate, drone_move_relative, drone_set_altitude, drone_set_yaw.
+- Полёт: drone_navigate, drone_navigate_to_chess_cell, drone_move_relative, drone_set_altitude, drone_set_yaw.
 - Безопасная остановка в воздухе: drone_hold_position. Команда «стоп» означает зависнуть, а не выключить моторы.
 - Последовательности: drone_run_sequence.
 - Светодиодная лента: drone_set_led_effect.
@@ -36,6 +36,7 @@ DEFAULT_SYSTEM_PROMPT = """Ты управляешь автономным дро
 - left_m > 0 — влево, left_m < 0 — вправо.
 - up_m > 0 — вверх, up_m < 0 — вниз.
 - Для абсолютной точки используй drone_navigate. Для карты маркеров frame_id="aruco_map".
+- Для клетки шахматного поля вида a1..h8 используй drone_navigate_to_chess_cell.
 - Для последовательных действий используй drone_run_sequence.
 - В шагах drone_run_sequence передавай только аргументы выбранного шага. wait_until_disarmed допустим только для drone_land.
 - Для «поверни направо» относительный угол отрицательный, для «поверни налево» положительный.
@@ -73,6 +74,7 @@ JSON_PLANNER_PROMPT = """Ты планировщик действий агент
 - «готов ли дрон» — drone_get_system_status.
 - «взлети» без высоты — drone_takeoff height_m=1.0.
 - «лети вперёд» без расстояния — drone_move_relative forward_m=0.5.
+- Команды про клетку шахматного поля a1..h8 выполняй через drone_navigate_to_chess_cell.
 - Вправо задаётся отрицательным left_m; назад — отрицательным forward_m.
 - «поверни направо» — drone_set_yaw relative_deg=-90; налево — relative_deg=90.
 - «остановись» — drone_hold_position; «садись» — drone_land.

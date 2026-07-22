@@ -16,7 +16,7 @@ class InitializeCellCommand:
 
 @dataclass(frozen=True)
 class ChessFlightCommand:
-    source_cell: str
+    source_cell: str | None
     target_cell: str
 
 
@@ -143,12 +143,19 @@ def _parse_initialize_cell(text: str) -> InitializeCellCommand | None:
 
 def _parse_chess_flight(text: str) -> ChessFlightCommand | None:
     match = re.fullmatch(r"^прилети\s+из\s+клетки\s+(\S+)\s+в\s+(?:клетку\s+)?(\S+)$", text)
-    if not match:
-        return None
-    return ChessFlightCommand(
-        source_cell=normalize_cell(match.group(1)),
-        target_cell=normalize_cell(match.group(2)),
-    )
+    if match:
+        return ChessFlightCommand(
+            source_cell=normalize_cell(match.group(1)),
+            target_cell=normalize_cell(match.group(2)),
+        )
+
+    match = re.fullmatch(r"^(?:прилети|лети)\s+в\s+(?:клетку\s+)?(\S+)$", text)
+    if match:
+        return ChessFlightCommand(
+            source_cell=None,
+            target_cell=normalize_cell(match.group(1)),
+        )
+    return None
 
 
 def _parse_takeoff(text: str) -> TakeoffCommand | None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import threading
 import time
 import traceback
@@ -43,6 +44,19 @@ TELEMETRY_FIELDS = (
 )
 
 
+CHESS_CELL_RE = re.compile(r"^[a-h][1-8]$")
+
+
+def _env_float(name, default):
+    raw = os.getenv(name)
+    if raw is None or str(raw).strip() == "":
+        return float(default)
+    try:
+        return float(str(raw).replace(",", "."))
+    except ValueError:
+        return float(default)
+
+
 def _safe_number(value):
     if isinstance(value, (int, float)):
         return float(value) if math.isfinite(float(value)) else None
@@ -69,6 +83,16 @@ class DroneRos1Bridge:
         self.flight_requested = env_bool("DRONE_ENABLE_FLIGHT_TOOLS", False)
         self.allow_land_when_disabled = env_bool("DRONE_ALLOW_LAND_WHEN_DISABLED", True)
         self.land_on_sequence_error = env_bool("DRONE_LAND_ON_SEQUENCE_ERROR", False)
+        self.chess_map_frame_id = str(os.getenv("CHESS_MAP_FRAME_ID", "aruco_map")).strip() or "aruco_map"
+        self.chess_map_origin_x_m = _env_float("CHESS_MAP_ORIGIN_X_M", 0.0)
+        self.chess_map_origin_y_m = _env_float("CHESS_MAP_ORIGIN_Y_M", 0.0)
+        self.chess_cell_size_m = _env_float("CHESS_CELL_SIZE_M", 0.43557247227658186)
+        self.chess_takeoff_height_m = _env_float("CHESS_TAKEOFF_HEIGHT_M", self.limits.default_takeoff_height_m)
+        self.chess_flight_altitude_m = _env_float(
+            "CHESS_FLIGHT_ALTITUDE_M",
+            max(self.limits.min_flight_altitude_m, self.chess_takeoff_height_m),
+        )
+        self.chess_map_wait_timeout_s = _env_float("CHESS_MAP_WAIT_TIMEOUT_S", 10.0)
         self.lock = threading.RLock()
 
         self.service_names = {
@@ -400,6 +424,142 @@ class DroneRos1Bridge:
             "command": response,
             "arrival": arrival,
             "relative_target": {"forward_m": forward, "left_m": left, "up_m": up},
+        }
+
+    def _normalize_chess_cell(self, cell):
+        value = str(cell or "").strip().lower()
+        if not CHESS_CELL_RE.fullmatch(value):
+            raise ValueError("cell must match a1..h8")
+        return value
+
+    def _chess_cell_target(self, cell):
+        normalized = self._normalize_chess_cell(cell)
+        file_index = ord(normalized[0]) - ord("a")
+        rank_index = int(normalized[1]) - 1
+        x = self.chess_map_origin_x_m + (file_index + 0.5) * self.chess_cell_size_m
+        y = self.chess_map_origin_y_m + (rank_index + 0.5) * self.chess_cell_size_m
+        return {"cell": normalized, "x": x, "y": y, "frame_id": self.chess_map_frame_id}
+
+    def _wait_for_frame_telemetry(self, frame_id, timeout_s=None):
+        timeout = self.chess_map_wait_timeout_s if timeout_s is None else finite_float(timeout_s, "timeout_s")
+        timeout = float(clamp(timeout, 0.2, 120.0))
+        deadline = time.monotonic() + timeout
+        last = None
+        while not rospy.is_shutdown() and time.monotonic() < deadline:
+            last = self.drone_get_telemetry(frame_id)
+            if last.get("success") and all(isinstance(last.get(name), (int, float)) for name in ("x", "y", "z")):
+                return {"success": True, "telemetry": last, "frame_id": frame_id}
+            rospy.sleep(0.2)
+        return {
+            "success": False,
+            "error": "Telemetry for frame %s is unavailable after %.1f s" % (frame_id, timeout),
+            "frame_id": frame_id,
+            "telemetry": last,
+        }
+
+    def drone_navigate_to_chess_cell(
+        self,
+        cell,
+        takeoff_height_m=None,
+        flight_altitude_m=None,
+        speed_mps=None,
+        land_after=True,
+        wait_for_map_s=None,
+    ):
+        locked = self._require_flight_enabled("drone_navigate_to_chess_cell")
+        if locked:
+            return locked
+        connected = self._connected_telemetry()
+        if not connected.get("success"):
+            return connected
+
+        target = self._chess_cell_target(cell)
+        takeoff_height = self.limits.validate_takeoff_height(
+            self.chess_takeoff_height_m if takeoff_height_m is None else takeoff_height_m
+        )
+        target_z = self.limits.validate_takeoff_height(
+            self.chess_flight_altitude_m if flight_altitude_m is None else flight_altitude_m
+        )
+        speed = self.limits.validate_speed(speed_mps)
+        wait_timeout = self.chess_map_wait_timeout_s if wait_for_map_s is None else finite_float(wait_for_map_s, "wait_for_map_s")
+        wait_timeout = float(clamp(wait_timeout, 0.2, 120.0))
+        map_frame = self.limits.validate_frame(target["frame_id"])
+
+        telemetry = connected["telemetry"]
+        current_z_map = telemetry.get("z")
+        airborne = bool(telemetry.get("armed")) or (
+            isinstance(current_z_map, (int, float)) and float(current_z_map) >= self.limits.min_flight_altitude_m + 0.05
+        )
+
+        takeoff_result = None
+        if not airborne:
+            takeoff_result = self.drone_takeoff(height_m=takeoff_height, speed_mps=speed, wait=True)
+            if not takeoff_result.get("success"):
+                return {
+                    "success": False,
+                    "takeoff": takeoff_result,
+                    "target": {"x": target["x"], "y": target["y"], "z": target_z, "frame_id": map_frame, "cell": target["cell"]},
+                }
+
+        localized = self._wait_for_frame_telemetry(map_frame, timeout_s=wait_timeout)
+        if not localized.get("success"):
+            hold_result = self.drone_hold_position()
+            return {
+                "success": False,
+                "error": localized.get("error"),
+                "frame_id": map_frame,
+                "target": {"x": target["x"], "y": target["y"], "z": target_z, "frame_id": map_frame, "cell": target["cell"]},
+                "takeoff": takeoff_result,
+                "telemetry": localized.get("telemetry"),
+                "safety_hold": hold_result,
+            }
+
+        current = localized["telemetry"]
+        current_x = float(current["x"])
+        current_y = float(current["y"])
+        current_z = float(current["z"])
+        tolerance = max(0.05, min(0.5, self.limits.arrival_tolerance_m))
+        needs_x = abs(target["x"] - current_x) > tolerance
+        needs_y = abs(target["y"] - current_y) > tolerance
+        needs_z = abs(target_z - current_z) > tolerance
+
+        steps = []
+        if needs_x:
+            steps.append(
+                {
+                    "type": "drone_navigate",
+                    "x": target["x"],
+                    "y": current_y,
+                    "z": target_z,
+                    "frame_id": map_frame,
+                    "speed_mps": speed,
+                    "wait": True,
+                }
+            )
+        if needs_y or needs_z or not steps:
+            steps.append(
+                {
+                    "type": "drone_navigate",
+                    "x": target["x"],
+                    "y": target["y"],
+                    "z": target_z,
+                    "frame_id": map_frame,
+                    "speed_mps": speed,
+                    "wait": True,
+                }
+            )
+        if parse_bool(land_after, True):
+            steps.append({"type": "drone_land"})
+
+        sequence = self.drone_run_sequence(steps)
+        return {
+            "success": bool(sequence.get("success")),
+            "cell": target["cell"],
+            "frame_id": map_frame,
+            "target": {"x": target["x"], "y": target["y"], "z": target_z, "frame_id": map_frame},
+            "current_pose": {"x": current_x, "y": current_y, "z": current_z, "frame_id": map_frame},
+            "takeoff": takeoff_result,
+            "sequence": sequence,
         }
 
     def drone_set_altitude(self, z, frame_id="terrain"):

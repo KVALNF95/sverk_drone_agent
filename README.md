@@ -41,6 +41,7 @@ SVERH/Clover simple_offboard + LED
 - `drone_takeoff`
 - `drone_land`
 - `drone_navigate`
+- `drone_navigate_to_chess_cell`
 - `drone_move_relative`
 - `drone_set_altitude`
 - `drone_set_yaw`

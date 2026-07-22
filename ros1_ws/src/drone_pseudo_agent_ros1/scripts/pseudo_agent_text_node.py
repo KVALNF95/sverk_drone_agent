@@ -21,7 +21,6 @@ from drone_pseudo_agent_ros1.command_parser import (
     StatusCommand,
     TakeoffCommand,
     TelemetryCommand,
-    chess_delta_m,
     parse_text_command,
 )
 
@@ -53,8 +52,6 @@ class DronePseudoAgentTextNodeRos1:
         self.takeoff_height_m = env_float("PSEUDO_TAKEOFF_HEIGHT_M", 0.8)
         self.move_speed_mps = env_float("PSEUDO_MOVE_SPEED_MPS", 0.5)
         self.land_wait_until_disarmed = env_bool("PSEUDO_LAND_WAIT_UNTIL_DISARMED", False)
-        self.chess_cell_size_m = env_float("CHESS_CELL_SIZE_M", 0.4)
-        self.chess_side = str(os.getenv("CHESS_SIDE", "white")).strip().lower()
         self.active = False
         self.current_cell: str | None = None
         self.lock = threading.Lock()
@@ -206,28 +203,23 @@ class DronePseudoAgentTextNodeRos1:
         return {"success": True, "reply": reply, "result": status}
 
     def execute_chess_flight(self, command: ChessFlightCommand) -> dict[str, object]:
-        if self.current_cell is None:
-            return {"success": False, "reply": "Текущая клетка не инициализирована. Сначала скажи: 'я в клетке e2'."}
-        if self.current_cell != command.source_cell:
-            return {
-                "success": False,
-                "reply": "Команда ожидает старт из %s, но в памяти сейчас %s." % (command.source_cell, self.current_cell),
-            }
+        if command.source_cell and self.current_cell and self.current_cell != command.source_cell:
+            rospy.logwarn(
+                "Pseudo-agent chess memory mismatch: command says %s, memory has %s. Flying by aruco_map target anyway.",
+                command.source_cell,
+                self.current_cell,
+            )
 
-        forward_m, left_m = chess_delta_m(
-            command.source_cell,
-            command.target_cell,
-            self.chess_cell_size_m,
-            self.chess_side,
+        result = self.bridge.drone_navigate_to_chess_cell(
+            cell=command.target_cell,
+            takeoff_height_m=self.takeoff_height_m,
+            flight_altitude_m=self.takeoff_height_m,
+            speed_mps=self.move_speed_mps,
+            land_after=True,
         )
-        if abs(forward_m) < 1e-9 and abs(left_m) < 1e-9:
-            return {"success": True, "reply": "Дрон уже находится в клетке %s." % command.target_cell}
-
-        sequence = self._build_travel_sequence(forward_m=forward_m, left_m=left_m)
-        result = self.bridge.drone_run_sequence(sequence)
         if result.get("success"):
             self.current_cell = command.target_cell
-            reply = "Перелёт с %s в %s выполнен." % (command.source_cell, command.target_cell)
+            reply = "Перелёт в клетку %s выполнен." % command.target_cell
             return {"success": True, "reply": reply, "result": result}
         return {"success": False, "reply": self._tool_error("Шахматный перелёт не выполнен", result), "result": result}
 
