@@ -196,7 +196,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "drone_navigate_to_chess_cell",
-        "description": "Take off if needed, localize in aruco_map, then fly along the chessboard axes to the target cell a1..h8 and optionally land.",
+        "description": "Take off if needed, localize in aruco_map, then fly along the chessboard axes to the target cell a1..h8 with staged alignment before the optional landing.",
         "inputSchema": {
             "type": "object",
             "properties": {
