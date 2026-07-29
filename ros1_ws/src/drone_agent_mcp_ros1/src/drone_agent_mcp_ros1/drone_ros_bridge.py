@@ -94,7 +94,7 @@ class DroneRos1Bridge:
             max(self.limits.min_flight_altitude_m, self.chess_takeoff_height_m),
         )
         self.chess_map_wait_timeout_s = _env_float("CHESS_MAP_WAIT_TIMEOUT_S", 10.0)
-        self.chess_arrival_tolerance_m = _env_float("CHESS_ARRIVAL_TOLERANCE_M", 0.10)
+        self.chess_arrival_tolerance_m = _env_float("CHESS_ARRIVAL_TOLERANCE_M", 0.20)
         self.chess_settle_duration_s = _env_float("CHESS_SETTLE_DURATION_S", 2.0)
         self.chess_settle_timeout_s = _env_float("CHESS_SETTLE_TIMEOUT_S", 10.0)
         self.chess_camera_forward_compensation_m = _env_float(

@@ -209,7 +209,7 @@ TOOL_SCHEMAS = [
                 "wait_for_map_s": {"type": "number", "default": 10.0},
                 "land_wait_until_disarmed": {"type": "boolean", "default": False},
                 "land_timeout_s": {"type": ["number", "null"], "default": None},
-                "arrival_tolerance_m": {"type": "number", "default": 0.10},
+                "arrival_tolerance_m": {"type": "number", "default": 0.20},
                 "settle_duration_s": {"type": "number", "default": 2.0},
                 "settle_timeout_s": {"type": "number", "default": 10.0},
                 "camera_forward_compensation_m": {"type": "number", "default": 0.125},
