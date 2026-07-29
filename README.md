@@ -122,10 +122,12 @@ IP и ID не хранятся в YAML пакетов.
 Для шахматного полёта и более точной посадки в клетку можно отдельно настроить:
 
 ```bash
-export CHESS_ALIGNMENT_HOLD_SEC='3.0'
-export CHESS_ALIGNMENT_SPEED_MPS='0.25'
+export CHESS_TAKEOFF_SPEED_MPS='0.3'
+export CHESS_ALIGNMENT_HOLD_SEC='3.5'
+export CHESS_ALIGNMENT_SPEED_MPS='0.2'
 export CHESS_ALIGNMENT_TOLERANCE_M='0.10'
 export CHESS_FINAL_APPROACH_ALTITUDE_M='0.4'
+export CHESS_LANDING_SPEED_MPS='0.2'
 export CHESS_LAND_WAIT_UNTIL_DISARMED='0'
 ```
 

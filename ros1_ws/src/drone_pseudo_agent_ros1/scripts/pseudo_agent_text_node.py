@@ -50,6 +50,7 @@ class DronePseudoAgentTextNodeRos1:
         self.status_topic = os.getenv("AGENT_STATUS_TOPIC", "/agent/status")
         self.answer_topic = os.getenv("AGENT_ANSWER_TOPIC", "/agent/answer")
         self.takeoff_height_m = env_float("PSEUDO_TAKEOFF_HEIGHT_M", 0.8)
+        self.takeoff_speed_mps = env_float("PSEUDO_TAKEOFF_SPEED_MPS", 0.3)
         self.move_speed_mps = env_float("PSEUDO_MOVE_SPEED_MPS", 0.5)
         self.land_wait_until_disarmed = env_bool("PSEUDO_LAND_WAIT_UNTIL_DISARMED", False)
         self.active = False
@@ -138,7 +139,7 @@ class DronePseudoAgentTextNodeRos1:
 
     def execute_takeoff(self, command: TakeoffCommand) -> dict[str, object]:
         height = self.takeoff_height_m if command.height_m is None else command.height_m
-        result = self.bridge.drone_takeoff(height_m=height, speed_mps=self.move_speed_mps, wait=True)
+        result = self.bridge.drone_takeoff(height_m=height, speed_mps=self.takeoff_speed_mps, wait=True)
         if result.get("success"):
             return {
                 "success": True,
@@ -240,7 +241,7 @@ class DronePseudoAgentTextNodeRos1:
             {
                 "type": "drone_takeoff",
                 "height_m": self.takeoff_height_m,
-                "speed_mps": self.move_speed_mps,
+                "speed_mps": self.takeoff_speed_mps,
                 "wait": True,
             }
         ]

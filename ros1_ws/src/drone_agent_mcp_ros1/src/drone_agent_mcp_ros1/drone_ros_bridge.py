@@ -93,10 +93,12 @@ class DroneRos1Bridge:
             max(self.limits.min_flight_altitude_m, self.chess_takeoff_height_m),
         )
         self.chess_map_wait_timeout_s = _env_float("CHESS_MAP_WAIT_TIMEOUT_S", 10.0)
-        self.chess_alignment_hold_s = _env_float("CHESS_ALIGNMENT_HOLD_SEC", 3.0)
-        self.chess_alignment_speed_mps = _env_float("CHESS_ALIGNMENT_SPEED_MPS", 0.25)
+        self.chess_takeoff_speed_mps = _env_float("CHESS_TAKEOFF_SPEED_MPS", 0.3)
+        self.chess_alignment_hold_s = _env_float("CHESS_ALIGNMENT_HOLD_SEC", 3.5)
+        self.chess_alignment_speed_mps = _env_float("CHESS_ALIGNMENT_SPEED_MPS", 0.2)
         self.chess_alignment_tolerance_m = _env_float("CHESS_ALIGNMENT_TOLERANCE_M", 0.10)
         self.chess_final_approach_altitude_m = _env_float("CHESS_FINAL_APPROACH_ALTITUDE_M", 0.4)
+        self.chess_landing_speed_mps = _env_float("CHESS_LANDING_SPEED_MPS", 0.2)
         self.chess_land_wait_until_disarmed = env_bool("CHESS_LAND_WAIT_UNTIL_DISARMED", False)
         self.lock = threading.RLock()
 
@@ -506,6 +508,7 @@ class DroneRos1Bridge:
             self.chess_flight_altitude_m if flight_altitude_m is None else flight_altitude_m
         )
         speed = self.limits.validate_speed(speed_mps)
+        takeoff_speed = self.limits.validate_speed(min(speed, max(0.05, self.chess_takeoff_speed_mps)))
         wait_timeout = self.chess_map_wait_timeout_s if wait_for_map_s is None else finite_float(wait_for_map_s, "wait_for_map_s")
         wait_timeout = float(clamp(wait_timeout, 0.2, 120.0))
         map_frame = self.limits.validate_frame(target["frame_id"])
@@ -518,7 +521,7 @@ class DroneRos1Bridge:
 
         takeoff_result = None
         if not airborne:
-            takeoff_result = self.drone_takeoff(height_m=takeoff_height, speed_mps=speed, wait=True)
+            takeoff_result = self.drone_takeoff(height_m=takeoff_height, speed_mps=takeoff_speed, wait=True)
             if not takeoff_result.get("success"):
                 return {
                     "success": False,
@@ -547,6 +550,7 @@ class DroneRos1Bridge:
         fine_tolerance = float(clamp(self.chess_alignment_tolerance_m, 0.03, coarse_tolerance))
         hold_s = float(clamp(self.chess_alignment_hold_s, 0.0, 60.0))
         fine_speed = self.limits.validate_speed(min(speed, max(0.05, self.chess_alignment_speed_mps)))
+        landing_speed = self.limits.validate_speed(min(fine_speed, max(0.05, self.chess_landing_speed_mps)))
         final_approach_z = self.limits.validate_takeoff_height(min(target_z, self.chess_final_approach_altitude_m))
         needs_x = abs(target["x"] - current_x) > coarse_tolerance
         needs_y = abs(target["y"] - current_y) > coarse_tolerance
@@ -592,35 +596,16 @@ class DroneRos1Bridge:
 
         if parse_bool(land_after, True):
             if needs_final_descent:
-                wait_step = self._sequence_wait_step(hold_s)
-                if wait_step is not None:
-                    steps.append(wait_step)
                 steps.append(
                     self._sequence_navigate_step(
                         target["x"],
                         target["y"],
                         final_approach_z,
                         map_frame,
-                        fine_speed,
+                        landing_speed,
                         fine_tolerance,
                     )
                 )
-            wait_step = self._sequence_wait_step(hold_s)
-            if wait_step is not None:
-                steps.append(wait_step)
-            steps.append(
-                self._sequence_navigate_step(
-                    target["x"],
-                    target["y"],
-                    final_approach_z if needs_final_descent else target_z,
-                    map_frame,
-                    fine_speed,
-                    fine_tolerance,
-                )
-            )
-            wait_step = self._sequence_wait_step(hold_s)
-            if wait_step is not None:
-                steps.append(wait_step)
             steps.append(
                 {
                     "type": "drone_land",
@@ -636,10 +621,12 @@ class DroneRos1Bridge:
             "target": {"x": target["x"], "y": target["y"], "z": target_z, "frame_id": map_frame},
             "current_pose": {"x": current_x, "y": current_y, "z": current_z, "frame_id": map_frame},
             "landing_profile": {
+                "takeoff_speed_mps": takeoff_speed,
                 "coarse_tolerance_m": coarse_tolerance,
                 "alignment_tolerance_m": fine_tolerance,
                 "alignment_speed_mps": fine_speed,
                 "alignment_hold_s": hold_s,
+                "landing_speed_mps": landing_speed,
                 "final_approach_altitude_m": final_approach_z,
                 "land_after": bool(parse_bool(land_after, True)),
             },
