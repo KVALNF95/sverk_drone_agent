@@ -154,7 +154,7 @@ TOOL_SCHEMAS = [
             "type": "object",
             "properties": {
                 "height_m": {"type": "number", "default": 1.0},
-                "speed_mps": {"type": "number", "default": 0.5},
+                "speed_mps": {"type": "number", "default": 0.15},
                 "wait": {"type": "boolean", "default": True},
                 "tolerance_m": {"type": "number", "default": 0.25},
                 "timeout_s": {"type": "number", "default": 60.0},
@@ -204,6 +204,7 @@ TOOL_SCHEMAS = [
                 "takeoff_height_m": {"type": ["number", "null"], "default": None},
                 "flight_altitude_m": {"type": ["number", "null"], "default": None},
                 "speed_mps": {"type": "number", "default": 0.5},
+                "takeoff_speed_mps": {"type": "number", "default": 0.15},
                 "land_after": {"type": "boolean", "default": True},
                 "wait_for_map_s": {"type": "number", "default": 10.0},
                 "land_wait_until_disarmed": {"type": "boolean", "default": False},

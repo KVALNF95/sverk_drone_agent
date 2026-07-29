@@ -87,6 +87,7 @@ class DroneRos1Bridge:
         self.chess_map_origin_x_m = _env_float("CHESS_MAP_ORIGIN_X_M", 0.0)
         self.chess_map_origin_y_m = _env_float("CHESS_MAP_ORIGIN_Y_M", 0.0)
         self.chess_cell_size_m = _env_float("CHESS_CELL_SIZE_M", 0.43557247227658186)
+        self.takeoff_speed_mps = _env_float("DRONE_TAKEOFF_SPEED_MPS", 0.15)
         self.chess_takeoff_height_m = _env_float("CHESS_TAKEOFF_HEIGHT_M", self.limits.default_takeoff_height_m)
         self.chess_flight_altitude_m = _env_float(
             "CHESS_FLIGHT_ALTITUDE_M",
@@ -312,7 +313,7 @@ class DroneRos1Bridge:
         if not preflight.get("success"):
             return preflight
         height = self.limits.validate_takeoff_height(height_m)
-        speed = self.limits.validate_speed(speed_mps)
+        speed = self.limits.validate_speed(self.takeoff_speed_mps if speed_mps is None else speed_mps)
         response = self._call(
             "navigate",
             x=0.0,
@@ -482,6 +483,7 @@ class DroneRos1Bridge:
         takeoff_height_m=None,
         flight_altitude_m=None,
         speed_mps=None,
+        takeoff_speed_mps=None,
         land_after=True,
         wait_for_map_s=None,
         land_wait_until_disarmed=False,
@@ -502,6 +504,9 @@ class DroneRos1Bridge:
             self.chess_flight_altitude_m if flight_altitude_m is None else flight_altitude_m
         )
         speed = self.limits.validate_speed(speed_mps)
+        takeoff_speed = self.limits.validate_speed(
+            self.takeoff_speed_mps if takeoff_speed_mps is None else takeoff_speed_mps
+        )
         wait_timeout = self.chess_map_wait_timeout_s if wait_for_map_s is None else finite_float(wait_for_map_s, "wait_for_map_s")
         wait_timeout = float(clamp(wait_timeout, 0.2, 120.0))
         map_frame = self.limits.validate_frame(target["frame_id"])
@@ -514,7 +519,7 @@ class DroneRos1Bridge:
 
         takeoff_result = None
         if not airborne:
-            takeoff_result = self.drone_takeoff(height_m=takeoff_height, speed_mps=speed, wait=True)
+            takeoff_result = self.drone_takeoff(height_m=takeoff_height, speed_mps=takeoff_speed, wait=True)
             if not takeoff_result.get("success"):
                 return {
                     "success": False,
