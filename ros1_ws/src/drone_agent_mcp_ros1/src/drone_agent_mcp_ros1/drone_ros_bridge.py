@@ -94,6 +94,9 @@ class DroneRos1Bridge:
             max(self.limits.min_flight_altitude_m, self.chess_takeoff_height_m),
         )
         self.chess_map_wait_timeout_s = _env_float("CHESS_MAP_WAIT_TIMEOUT_S", 10.0)
+        self.chess_arrival_tolerance_m = _env_float("CHESS_ARRIVAL_TOLERANCE_M", 0.05)
+        self.chess_settle_duration_s = _env_float("CHESS_SETTLE_DURATION_S", 2.0)
+        self.chess_settle_timeout_s = _env_float("CHESS_SETTLE_TIMEOUT_S", 20.0)
         self.lock = threading.RLock()
 
         self.service_names = {
@@ -477,6 +480,60 @@ class DroneRos1Bridge:
                         return value.strip()
         return default
 
+    def _wait_for_chess_target_stable(
+        self,
+        *,
+        frame_id,
+        target_x,
+        target_y,
+        tolerance_m,
+        stable_duration_s,
+        timeout_s,
+    ):
+        tolerance = float(clamp(finite_float(tolerance_m, "arrival_tolerance_m"), 0.02, 0.5))
+        stable_duration = float(clamp(finite_float(stable_duration_s, "settle_duration_s"), 0.0, 30.0))
+        timeout = float(clamp(finite_float(timeout_s, "settle_timeout_s"), max(1.0, stable_duration), 120.0))
+        deadline = time.monotonic() + timeout
+        stable_since = None
+        last_error = None
+        last_telemetry = None
+
+        while not rospy.is_shutdown() and time.monotonic() < deadline:
+            telemetry = self.drone_get_telemetry(frame_id)
+            last_telemetry = telemetry
+            x = telemetry.get("x")
+            y = telemetry.get("y")
+            if telemetry.get("success") and isinstance(x, (int, float)) and isinstance(y, (int, float)):
+                last_error = math.hypot(float(target_x) - float(x), float(target_y) - float(y))
+                now = time.monotonic()
+                if last_error <= tolerance:
+                    if stable_since is None:
+                        stable_since = now
+                    stable_for = now - stable_since
+                    if stable_for >= stable_duration:
+                        return {
+                            "success": True,
+                            "horizontal_error_m": last_error,
+                            "tolerance_m": tolerance,
+                            "stable_duration_s": stable_for,
+                            "telemetry": telemetry,
+                        }
+                else:
+                    stable_since = None
+            else:
+                stable_since = None
+            rospy.sleep(0.1)
+
+        return {
+            "success": False,
+            "error": "Chess target did not remain within %.3f m for %.1f s before %.1f s timeout"
+            % (tolerance, stable_duration, timeout),
+            "horizontal_error_m": last_error,
+            "tolerance_m": tolerance,
+            "required_stable_duration_s": stable_duration,
+            "telemetry": last_telemetry,
+        }
+
     def drone_navigate_to_chess_cell(
         self,
         cell,
@@ -488,6 +545,9 @@ class DroneRos1Bridge:
         wait_for_map_s=None,
         land_wait_until_disarmed=False,
         land_timeout_s=None,
+        arrival_tolerance_m=None,
+        settle_duration_s=None,
+        settle_timeout_s=None,
     ):
         locked = self._require_flight_enabled("drone_navigate_to_chess_cell")
         if locked:
@@ -509,6 +569,22 @@ class DroneRos1Bridge:
         )
         wait_timeout = self.chess_map_wait_timeout_s if wait_for_map_s is None else finite_float(wait_for_map_s, "wait_for_map_s")
         wait_timeout = float(clamp(wait_timeout, 0.2, 120.0))
+        arrival_tolerance = (
+            self.chess_arrival_tolerance_m
+            if arrival_tolerance_m is None
+            else finite_float(arrival_tolerance_m, "arrival_tolerance_m")
+        )
+        arrival_tolerance = float(clamp(arrival_tolerance, 0.02, 0.5))
+        settle_duration = (
+            self.chess_settle_duration_s
+            if settle_duration_s is None
+            else finite_float(settle_duration_s, "settle_duration_s")
+        )
+        settle_timeout = (
+            self.chess_settle_timeout_s
+            if settle_timeout_s is None
+            else finite_float(settle_timeout_s, "settle_timeout_s")
+        )
         map_frame = self.limits.validate_frame(target["frame_id"])
 
         telemetry = connected["telemetry"]
@@ -544,10 +620,8 @@ class DroneRos1Bridge:
         current_x = float(current["x"])
         current_y = float(current["y"])
         current_z = float(current["z"])
-        tolerance = max(0.05, min(0.5, self.limits.arrival_tolerance_m))
+        tolerance = arrival_tolerance
         needs_x = abs(target["x"] - current_x) > tolerance
-        needs_y = abs(target["y"] - current_y) > tolerance
-        needs_z = abs(target_z - current_z) > tolerance
 
         steps = []
         if needs_x:
@@ -562,18 +636,17 @@ class DroneRos1Bridge:
                     "wait": True,
                 }
             )
-        if needs_y or needs_z or not steps:
-            steps.append(
-                {
-                    "type": "drone_navigate",
-                    "x": target["x"],
-                    "y": target["y"],
-                    "z": target_z,
-                    "frame_id": map_frame,
-                    "speed_mps": speed,
-                    "wait": True,
-                }
-            )
+        steps.append(
+            {
+                "type": "drone_navigate",
+                "x": target["x"],
+                "y": target["y"],
+                "z": target_z,
+                "frame_id": map_frame,
+                "speed_mps": speed,
+                "wait": True,
+            }
+        )
 
         sequence = self.drone_run_sequence(steps)
         result = {
@@ -587,6 +660,25 @@ class DroneRos1Bridge:
         }
         if not sequence.get("success"):
             result["error"] = self._error_text(sequence, "Chess navigation sequence failed")
+            return result
+
+        stabilization = self._wait_for_chess_target_stable(
+            frame_id=map_frame,
+            target_x=target["x"],
+            target_y=target["y"],
+            tolerance_m=arrival_tolerance,
+            stable_duration_s=settle_duration,
+            timeout_s=settle_timeout,
+        )
+        result["stabilization"] = stabilization
+        if not stabilization.get("success"):
+            result["success"] = False
+            result["error"] = self._error_text(stabilization, "Chess target stabilization failed")
+            if parse_bool(land_after, True):
+                landing_kwargs = {"wait_until_disarmed": land_wait_until_disarmed}
+                if land_timeout_s is not None:
+                    landing_kwargs["timeout_s"] = land_timeout_s
+                result["landing"] = self.drone_land(**landing_kwargs)
             return result
 
         if parse_bool(land_after, True):
