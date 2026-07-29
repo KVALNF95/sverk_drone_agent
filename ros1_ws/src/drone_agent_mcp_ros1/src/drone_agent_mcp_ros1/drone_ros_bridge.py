@@ -86,7 +86,7 @@ class DroneRos1Bridge:
         self.chess_map_frame_id = str(os.getenv("CHESS_MAP_FRAME_ID", "aruco_map")).strip() or "aruco_map"
         self.chess_map_origin_x_m = _env_float("CHESS_MAP_ORIGIN_X_M", 0.0)
         self.chess_map_origin_y_m = _env_float("CHESS_MAP_ORIGIN_Y_M", 0.0)
-        self.chess_cell_size_m = _env_float("CHESS_CELL_SIZE_M", 0.43557247227658186)
+        self.chess_cell_size_m = _env_float("CHESS_CELL_SIZE_M", 0.40)
         self.takeoff_speed_mps = _env_float("DRONE_TAKEOFF_SPEED_MPS", 0.15)
         self.chess_takeoff_height_m = _env_float("CHESS_TAKEOFF_HEIGHT_M", self.limits.default_takeoff_height_m)
         self.chess_flight_altitude_m = _env_float(
@@ -97,10 +97,6 @@ class DroneRos1Bridge:
         self.chess_arrival_tolerance_m = _env_float("CHESS_ARRIVAL_TOLERANCE_M", 0.20)
         self.chess_settle_duration_s = _env_float("CHESS_SETTLE_DURATION_S", 2.0)
         self.chess_settle_timeout_s = _env_float("CHESS_SETTLE_TIMEOUT_S", 10.0)
-        self.chess_camera_forward_compensation_m = _env_float(
-            "CHESS_CAMERA_FORWARD_COMPENSATION_M",
-            0.125,
-        )
         self.lock = threading.RLock()
 
         self.service_names = {
@@ -484,34 +480,6 @@ class DroneRos1Bridge:
                         return value.strip()
         return default
 
-    def _wait_for_navigation_target_distance(self, tolerance_m, timeout_s):
-        tolerance = float(clamp(finite_float(tolerance_m, "tolerance_m"), 0.005, 2.0))
-        timeout = float(clamp(finite_float(timeout_s, "timeout_s"), 0.5, 120.0))
-        deadline = time.monotonic() + timeout
-        last_distance = None
-        last_telemetry = None
-        while not rospy.is_shutdown() and time.monotonic() < deadline:
-            telemetry = self.drone_get_telemetry("navigate_target")
-            last_telemetry = telemetry
-            coords = [telemetry.get("x"), telemetry.get("y"), telemetry.get("z")]
-            if telemetry.get("success") and all(isinstance(value, (int, float)) for value in coords):
-                last_distance = math.sqrt(sum(float(value) ** 2 for value in coords))
-                if last_distance <= tolerance:
-                    return {
-                        "success": True,
-                        "distance_m": last_distance,
-                        "tolerance_m": tolerance,
-                    }
-            rospy.sleep(0.1)
-        return {
-            "success": False,
-            "error": "Navigation target was not reached within %.3f m before %.1f s timeout"
-            % (tolerance, timeout),
-            "distance_m": last_distance,
-            "tolerance_m": tolerance,
-            "telemetry": last_telemetry,
-        }
-
     def _wait_for_chess_target_stable(
         self,
         *,
@@ -580,7 +548,6 @@ class DroneRos1Bridge:
         arrival_tolerance_m=None,
         settle_duration_s=None,
         settle_timeout_s=None,
-        camera_forward_compensation_m=None,
     ):
         locked = self._require_flight_enabled("drone_navigate_to_chess_cell")
         if locked:
@@ -618,12 +585,6 @@ class DroneRos1Bridge:
             if settle_timeout_s is None
             else finite_float(settle_timeout_s, "settle_timeout_s")
         )
-        camera_compensation = (
-            self.chess_camera_forward_compensation_m
-            if camera_forward_compensation_m is None
-            else finite_float(camera_forward_compensation_m, "camera_forward_compensation_m")
-        )
-        camera_compensation = float(clamp(camera_compensation, 0.0, self.limits.max_relative_distance_m))
         map_frame = self.limits.validate_frame(target["frame_id"])
 
         telemetry = connected["telemetry"]
@@ -721,72 +682,6 @@ class DroneRos1Bridge:
             return result
 
         if parse_bool(land_after, True):
-            compensation_command = self.drone_move_relative(
-                forward_m=camera_compensation,
-                left_m=0.0,
-                up_m=0.0,
-                speed_mps=speed,
-                wait=False,
-            )
-            if compensation_command.get("success"):
-                compensation_arrival = self._wait_for_navigation_target_distance(
-                    tolerance_m=0.02,
-                    timeout_s=settle_timeout,
-                )
-                compensation = {
-                    "success": bool(compensation_arrival.get("success")),
-                    "command": compensation_command,
-                    "arrival": compensation_arrival,
-                    "relative_target": {
-                        "forward_m": camera_compensation,
-                        "left_m": 0.0,
-                        "up_m": 0.0,
-                    },
-                }
-            else:
-                compensation = compensation_command
-            result["camera_compensation"] = compensation
-            if not compensation.get("success"):
-                result["success"] = False
-                result["error"] = self._error_text(compensation, "Camera offset compensation failed")
-                landing_kwargs = {"wait_until_disarmed": land_wait_until_disarmed}
-                if land_timeout_s is not None:
-                    landing_kwargs["timeout_s"] = land_timeout_s
-                result["landing"] = self.drone_land(**landing_kwargs)
-                return result
-
-            compensated_hold = self.drone_hold_position(frame_id="body")
-            result["compensated_hold"] = compensated_hold
-            if not compensated_hold.get("success"):
-                result["success"] = False
-                result["error"] = self._error_text(compensated_hold, "Compensated position hold failed")
-                landing_kwargs = {"wait_until_disarmed": land_wait_until_disarmed}
-                if land_timeout_s is not None:
-                    landing_kwargs["timeout_s"] = land_timeout_s
-                result["landing"] = self.drone_land(**landing_kwargs)
-                return result
-
-            post_compensation_stabilization = self._wait_for_chess_target_stable(
-                frame_id="navigate_target",
-                target_x=0.0,
-                target_y=0.0,
-                tolerance_m=arrival_tolerance,
-                stable_duration_s=settle_duration,
-                timeout_s=settle_timeout,
-            )
-            result["post_compensation_stabilization"] = post_compensation_stabilization
-            if not post_compensation_stabilization.get("success"):
-                result["success"] = False
-                result["error"] = self._error_text(
-                    post_compensation_stabilization,
-                    "Post-compensation stabilization failed",
-                )
-                landing_kwargs = {"wait_until_disarmed": land_wait_until_disarmed}
-                if land_timeout_s is not None:
-                    landing_kwargs["timeout_s"] = land_timeout_s
-                result["landing"] = self.drone_land(**landing_kwargs)
-                return result
-
             landing_kwargs = {"wait_until_disarmed": land_wait_until_disarmed}
             if land_timeout_s is not None:
                 landing_kwargs["timeout_s"] = land_timeout_s

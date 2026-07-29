@@ -212,7 +212,6 @@ TOOL_SCHEMAS = [
                 "arrival_tolerance_m": {"type": "number", "default": 0.20},
                 "settle_duration_s": {"type": "number", "default": 2.0},
                 "settle_timeout_s": {"type": "number", "default": 10.0},
-                "camera_forward_compensation_m": {"type": "number", "default": 0.125},
             },
             "required": ["cell"],
             "additionalProperties": False,
