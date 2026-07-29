@@ -93,11 +93,6 @@ class DroneRos1Bridge:
             max(self.limits.min_flight_altitude_m, self.chess_takeoff_height_m),
         )
         self.chess_map_wait_timeout_s = _env_float("CHESS_MAP_WAIT_TIMEOUT_S", 10.0)
-        self.chess_takeoff_speed_mps = _env_float("CHESS_TAKEOFF_SPEED_MPS", 0.3)
-        self.chess_alignment_hold_s = _env_float("CHESS_ALIGNMENT_HOLD_SEC", 3.5)
-        self.chess_alignment_speed_mps = _env_float("CHESS_ALIGNMENT_SPEED_MPS", 0.2)
-        self.chess_alignment_tolerance_m = _env_float("CHESS_ALIGNMENT_TOLERANCE_M", 0.10)
-        self.chess_land_wait_until_disarmed = env_bool("CHESS_LAND_WAIT_UNTIL_DISARMED", False)
         self.lock = threading.RLock()
 
         self.service_names = {
@@ -462,26 +457,6 @@ class DroneRos1Bridge:
             "telemetry": last,
         }
 
-    @staticmethod
-    def _sequence_wait_step(duration_s):
-        duration = float(clamp(duration_s, 0.0, 60.0))
-        if duration <= 0.0:
-            return None
-        return {"type": "wait", "duration_s": duration}
-
-    @staticmethod
-    def _sequence_navigate_step(x, y, z, frame_id, speed_mps, tolerance_m):
-        return {
-            "type": "drone_navigate",
-            "x": x,
-            "y": y,
-            "z": z,
-            "frame_id": frame_id,
-            "speed_mps": speed_mps,
-            "wait": True,
-            "tolerance_m": tolerance_m,
-        }
-
     def drone_navigate_to_chess_cell(
         self,
         cell,
@@ -506,7 +481,6 @@ class DroneRos1Bridge:
             self.chess_flight_altitude_m if flight_altitude_m is None else flight_altitude_m
         )
         speed = self.limits.validate_speed(speed_mps)
-        takeoff_speed = self.limits.validate_speed(min(speed, max(0.05, self.chess_takeoff_speed_mps)))
         wait_timeout = self.chess_map_wait_timeout_s if wait_for_map_s is None else finite_float(wait_for_map_s, "wait_for_map_s")
         wait_timeout = float(clamp(wait_timeout, 0.2, 120.0))
         map_frame = self.limits.validate_frame(target["frame_id"])
@@ -519,7 +493,7 @@ class DroneRos1Bridge:
 
         takeoff_result = None
         if not airborne:
-            takeoff_result = self.drone_takeoff(height_m=takeoff_height, speed_mps=takeoff_speed, wait=True)
+            takeoff_result = self.drone_takeoff(height_m=takeoff_height, speed_mps=speed, wait=True)
             if not takeoff_result.get("success"):
                 return {
                     "success": False,
@@ -544,57 +518,40 @@ class DroneRos1Bridge:
         current_x = float(current["x"])
         current_y = float(current["y"])
         current_z = float(current["z"])
-        coarse_tolerance = max(0.05, min(0.5, self.limits.arrival_tolerance_m))
-        fine_tolerance = float(clamp(self.chess_alignment_tolerance_m, 0.03, coarse_tolerance))
-        hold_s = float(clamp(self.chess_alignment_hold_s, 0.0, 60.0))
-        fine_speed = self.limits.validate_speed(min(speed, max(0.05, self.chess_alignment_speed_mps)))
-        needs_x = abs(target["x"] - current_x) > coarse_tolerance
-        needs_y = abs(target["y"] - current_y) > coarse_tolerance
-        needs_z = abs(target_z - current_z) > coarse_tolerance
+        tolerance = max(0.05, min(0.5, self.limits.arrival_tolerance_m))
+        needs_x = abs(target["x"] - current_x) > tolerance
+        needs_y = abs(target["y"] - current_y) > tolerance
+        needs_z = abs(target_z - current_z) > tolerance
 
         steps = []
         if needs_x:
             steps.append(
-                self._sequence_navigate_step(
-                    target["x"],
-                    current_y,
-                    target_z,
-                    map_frame,
-                    speed,
-                    coarse_tolerance,
-                )
+                {
+                    "type": "drone_navigate",
+                    "x": target["x"],
+                    "y": current_y,
+                    "z": target_z,
+                    "frame_id": map_frame,
+                    "speed_mps": speed,
+                    "wait": True,
+                }
             )
         if needs_y or needs_z or not steps:
             steps.append(
-                self._sequence_navigate_step(
-                    target["x"],
-                    target["y"],
-                    target_z,
-                    map_frame,
-                    speed,
-                    coarse_tolerance,
-                )
+                {
+                    "type": "drone_navigate",
+                    "x": target["x"],
+                    "y": target["y"],
+                    "z": target_z,
+                    "frame_id": map_frame,
+                    "speed_mps": speed,
+                    "wait": True,
+                }
             )
-        wait_step = self._sequence_wait_step(hold_s)
-        if wait_step is not None:
-            steps.append(wait_step)
-        steps.append(
-            self._sequence_navigate_step(
-                target["x"],
-                target["y"],
-                target_z,
-                map_frame,
-                fine_speed,
-                fine_tolerance,
-            )
-        )
 
         if parse_bool(land_after, True):
             steps.append(
-                {
-                    "type": "drone_land",
-                    "wait_until_disarmed": self.chess_land_wait_until_disarmed,
-                }
+                {"type": "drone_land"}
             )
 
         sequence = self.drone_run_sequence(steps)
@@ -604,15 +561,6 @@ class DroneRos1Bridge:
             "frame_id": map_frame,
             "target": {"x": target["x"], "y": target["y"], "z": target_z, "frame_id": map_frame},
             "current_pose": {"x": current_x, "y": current_y, "z": current_z, "frame_id": map_frame},
-            "landing_profile": {
-                "takeoff_speed_mps": takeoff_speed,
-                "coarse_tolerance_m": coarse_tolerance,
-                "alignment_tolerance_m": fine_tolerance,
-                "alignment_speed_mps": fine_speed,
-                "alignment_hold_s": hold_s,
-                "landing_from_altitude_m": target_z,
-                "land_after": bool(parse_bool(land_after, True)),
-            },
             "takeoff": takeoff_result,
             "sequence": sequence,
         }
