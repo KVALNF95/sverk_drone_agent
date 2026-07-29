@@ -97,8 +97,6 @@ class DroneRos1Bridge:
         self.chess_alignment_hold_s = _env_float("CHESS_ALIGNMENT_HOLD_SEC", 3.5)
         self.chess_alignment_speed_mps = _env_float("CHESS_ALIGNMENT_SPEED_MPS", 0.2)
         self.chess_alignment_tolerance_m = _env_float("CHESS_ALIGNMENT_TOLERANCE_M", 0.10)
-        self.chess_final_approach_altitude_m = _env_float("CHESS_FINAL_APPROACH_ALTITUDE_M", 0.4)
-        self.chess_landing_speed_mps = _env_float("CHESS_LANDING_SPEED_MPS", 0.2)
         self.chess_land_wait_until_disarmed = env_bool("CHESS_LAND_WAIT_UNTIL_DISARMED", False)
         self.lock = threading.RLock()
 
@@ -550,12 +548,9 @@ class DroneRos1Bridge:
         fine_tolerance = float(clamp(self.chess_alignment_tolerance_m, 0.03, coarse_tolerance))
         hold_s = float(clamp(self.chess_alignment_hold_s, 0.0, 60.0))
         fine_speed = self.limits.validate_speed(min(speed, max(0.05, self.chess_alignment_speed_mps)))
-        landing_speed = self.limits.validate_speed(min(fine_speed, max(0.05, self.chess_landing_speed_mps)))
-        final_approach_z = self.limits.validate_takeoff_height(min(target_z, self.chess_final_approach_altitude_m))
         needs_x = abs(target["x"] - current_x) > coarse_tolerance
         needs_y = abs(target["y"] - current_y) > coarse_tolerance
         needs_z = abs(target_z - current_z) > coarse_tolerance
-        needs_final_descent = abs(target_z - final_approach_z) > fine_tolerance
 
         steps = []
         if needs_x:
@@ -595,17 +590,6 @@ class DroneRos1Bridge:
         )
 
         if parse_bool(land_after, True):
-            if needs_final_descent:
-                steps.append(
-                    self._sequence_navigate_step(
-                        target["x"],
-                        target["y"],
-                        final_approach_z,
-                        map_frame,
-                        landing_speed,
-                        fine_tolerance,
-                    )
-                )
             steps.append(
                 {
                     "type": "drone_land",
@@ -626,8 +610,7 @@ class DroneRos1Bridge:
                 "alignment_tolerance_m": fine_tolerance,
                 "alignment_speed_mps": fine_speed,
                 "alignment_hold_s": hold_s,
-                "landing_speed_mps": landing_speed,
-                "final_approach_altitude_m": final_approach_z,
+                "landing_from_altitude_m": target_z,
                 "land_after": bool(parse_bool(land_after, True)),
             },
             "takeoff": takeoff_result,

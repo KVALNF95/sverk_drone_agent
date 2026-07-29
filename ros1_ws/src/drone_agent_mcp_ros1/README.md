@@ -29,7 +29,7 @@
 
 Инструменты используют высокоуровневые сервисы `simple_offboard`: `get_telemetry`, `navigate`, `set_altitude`, `set_yaw`, `set_position`, `land`, а также `/led/set_effect`.
 
-`drone_navigate_to_chess_cell` теперь использует упрощённый профиль посадки: грубый подлёт к клетке, стабилизация, одно точное выравнивание, медленное снижение до малой высоты и затем `land()`. Параметры профиля задаются через `CHESS_TAKEOFF_SPEED_MPS`, `CHESS_ALIGNMENT_*`, `CHESS_FINAL_APPROACH_ALTITUDE_M` и `CHESS_LANDING_SPEED_MPS`.
+`drone_navigate_to_chess_cell` теперь использует упрощённый профиль посадки: грубый подлёт к клетке, стабилизация, одно точное выравнивание на основной высоте и затем `land()`. Параметры профиля задаются через `CHESS_TAKEOFF_SPEED_MPS` и `CHESS_ALIGNMENT_*`.
 
 ## Встроенные ограничения
 
