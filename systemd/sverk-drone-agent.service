@@ -1,0 +1,26 @@
+[Unit]
+Description=SVERK drone text agent stack
+Wants=network-online.target
+After=network-online.target roscore.service sverk.service
+Requires=roscore.service sverk.service
+PartOf=sverk.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+Environment=HOME=/home/pi
+Environment=DRONE_AGENT_MODE=agent
+Environment=SVERK_DRONE_AGENT_ENV_FILE=/home/pi/.sverk_drone_agent_env.sh
+WorkingDirectory=/home/pi/catkin_ws
+ExecStart=/home/pi/catkin_ws/src/sverk_drone_agent/scripts/run_drone_agent_stack.sh
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=20
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

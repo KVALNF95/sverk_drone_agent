@@ -161,6 +161,64 @@ roslaunch drone_pseudo_agent_ros1 pseudo_agent.launch
 
 Не запускайте второй экземпляр MCP на том же `MCP_PORT`.
 
+## 4.1. Автозапуск через systemd
+
+Подготовьте файл окружения:
+
+```bash
+test -f ~/.sverk_drone_agent_env.sh || \
+  cp ~/catkin_ws/src/sverk_drone_agent/environment.example.sh ~/.sverk_drone_agent_env.sh
+nano ~/.sverk_drone_agent_env.sh
+chmod 600 ~/.sverk_drone_agent_env.sh
+```
+
+Для обычного LLM-агента должны быть заданы `OPENAI_API_KEY`, MQTT-настройки и
+`DRONE_ENABLE_FLIGHT_TOOLS`. Установите unit:
+
+```bash
+chmod +x ~/catkin_ws/src/sverk_drone_agent/scripts/run_drone_agent_stack.sh
+sudo install -m 0644 \
+  ~/catkin_ws/src/sverk_drone_agent/systemd/sverk-drone-agent.service \
+  /etc/systemd/system/sverk-drone-agent.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now sverk-drone-agent.service
+```
+
+Unit по умолчанию запускает `drone_agent_stack.launch`: MQTT-мост, MCP-сервер и
+обычный агент. Для псевдоагента выполните:
+
+```bash
+sudo systemctl edit sverk-drone-agent.service
+```
+
+Добавьте:
+
+```ini
+[Service]
+Environment=DRONE_AGENT_MODE=pseudo
+```
+
+Затем примените настройку:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart sverk-drone-agent.service
+```
+
+Проверка:
+
+```bash
+systemctl status sverk-drone-agent.service --no-pager
+journalctl -u sverk-drone-agent.service -f
+rosnode list | grep -E 'fleet_text_bridge|drone_agent|drone_mcp'
+```
+
+Отключение автозапуска:
+
+```bash
+sudo systemctl disable --now sverk-drone-agent.service
+```
+
 ## 5. Проверка без полёта
 
 ROS-узлы:
