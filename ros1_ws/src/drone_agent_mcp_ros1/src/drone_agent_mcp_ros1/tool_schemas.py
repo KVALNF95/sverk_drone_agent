@@ -206,6 +206,8 @@ TOOL_SCHEMAS = [
                 "speed_mps": {"type": "number", "default": 0.5},
                 "land_after": {"type": "boolean", "default": True},
                 "wait_for_map_s": {"type": "number", "default": 10.0},
+                "land_wait_until_disarmed": {"type": "boolean", "default": False},
+                "land_timeout_s": {"type": ["number", "null"], "default": None},
             },
             "required": ["cell"],
             "additionalProperties": False,

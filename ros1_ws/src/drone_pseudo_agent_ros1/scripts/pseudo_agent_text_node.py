@@ -51,7 +51,7 @@ class DronePseudoAgentTextNodeRos1:
         self.answer_topic = os.getenv("AGENT_ANSWER_TOPIC", "/agent/answer")
         self.takeoff_height_m = env_float("PSEUDO_TAKEOFF_HEIGHT_M", 0.8)
         self.move_speed_mps = env_float("PSEUDO_MOVE_SPEED_MPS", 0.5)
-        self.land_wait_until_disarmed = env_bool("PSEUDO_LAND_WAIT_UNTIL_DISARMED", False)
+        self.land_wait_until_disarmed = env_bool("PSEUDO_LAND_WAIT_UNTIL_DISARMED", True)
         self.active = False
         self.current_cell: str | None = None
         self.lock = threading.Lock()
@@ -216,6 +216,7 @@ class DronePseudoAgentTextNodeRos1:
             flight_altitude_m=self.takeoff_height_m,
             speed_mps=self.move_speed_mps,
             land_after=True,
+            land_wait_until_disarmed=self.land_wait_until_disarmed,
         )
         if result.get("success"):
             self.current_cell = command.target_cell
@@ -294,7 +295,24 @@ class DronePseudoAgentTextNodeRos1:
 
     @staticmethod
     def _tool_error(prefix: str, result: dict[str, object]) -> str:
-        error = result.get("error") or result.get("message") or "без подробностей"
+        def find_error(value: object) -> str | None:
+            if isinstance(value, dict):
+                for key in ("error", "message"):
+                    text = value.get(key)
+                    if isinstance(text, str) and text.strip():
+                        return text.strip()
+                for key in ("landing", "sequence", "takeoff", "arrival", "results", "result"):
+                    nested = find_error(value.get(key))
+                    if nested:
+                        return nested
+            elif isinstance(value, list):
+                for item in reversed(value):
+                    nested = find_error(item)
+                    if nested:
+                        return nested
+            return None
+
+        error = find_error(result) or "без подробностей"
         return "%s: %s." % (prefix, error)
 
 

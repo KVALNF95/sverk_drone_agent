@@ -457,6 +457,25 @@ class DroneRos1Bridge:
             "telemetry": last,
         }
 
+    @staticmethod
+    def _error_text(result, default="Operation failed"):
+        if not isinstance(result, dict):
+            return default
+        for key in ("error", "message"):
+            value = result.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        nested = result.get("results")
+        if isinstance(nested, list):
+            for item in reversed(nested):
+                if not isinstance(item, dict):
+                    continue
+                for key in ("error", "message"):
+                    value = item.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+        return default
+
     def drone_navigate_to_chess_cell(
         self,
         cell,
@@ -465,6 +484,8 @@ class DroneRos1Bridge:
         speed_mps=None,
         land_after=True,
         wait_for_map_s=None,
+        land_wait_until_disarmed=False,
+        land_timeout_s=None,
     ):
         locked = self._require_flight_enabled("drone_navigate_to_chess_cell")
         if locked:
@@ -549,13 +570,8 @@ class DroneRos1Bridge:
                 }
             )
 
-        if parse_bool(land_after, True):
-            steps.append(
-                {"type": "drone_land"}
-            )
-
         sequence = self.drone_run_sequence(steps)
-        return {
+        result = {
             "success": bool(sequence.get("success")),
             "cell": target["cell"],
             "frame_id": map_frame,
@@ -564,6 +580,21 @@ class DroneRos1Bridge:
             "takeoff": takeoff_result,
             "sequence": sequence,
         }
+        if not sequence.get("success"):
+            result["error"] = self._error_text(sequence, "Chess navigation sequence failed")
+            return result
+
+        if parse_bool(land_after, True):
+            landing_kwargs = {"wait_until_disarmed": land_wait_until_disarmed}
+            if land_timeout_s is not None:
+                landing_kwargs["timeout_s"] = land_timeout_s
+            landing = self.drone_land(**landing_kwargs)
+            result["landing"] = landing
+            if not landing.get("success"):
+                result["success"] = False
+                result["error"] = self._error_text(landing, "Chess landing failed")
+                return result
+        return result
 
     def drone_set_altitude(self, z, frame_id="terrain"):
         locked = self._require_flight_enabled("drone_set_altitude")
@@ -718,6 +749,15 @@ class DroneRos1Bridge:
             result.update({"step_index": index, "step_type": step_type})
             results.append(result)
             if parse_bool(stop_on_error, True) and not result.get("success"):
+                if step_type == "drone_land":
+                    # A failed landing command must not be converted into a hold command:
+                    # that would cancel a landing attempt and leave the drone hovering.
+                    return {
+                        "success": False,
+                        "results": results,
+                        "sequence_error_action": "none",
+                        "error": self._error_text(result, "Landing step failed"),
+                    }
                 successful_takeoff = any(
                     item.get("step_type") == "drone_takeoff" and bool(item.get("success"))
                     for item in results
@@ -730,6 +770,7 @@ class DroneRos1Bridge:
                             "results": results,
                             "sequence_error_action": "land",
                             "sequence_error_land": landing_result,
+                            "error": self._error_text(result, "Sequence step failed"),
                         }
                     hold_result = self.drone_hold_position()
                     return {
@@ -738,6 +779,7 @@ class DroneRos1Bridge:
                         "sequence_error_action": "land_then_hold",
                         "sequence_error_land": landing_result,
                         "safety_hold": hold_result,
+                        "error": self._error_text(result, "Sequence step failed"),
                     }
                 # Hold is safer than silently continuing when we stay airborne after an error.
                 hold_result = self.drone_hold_position()
@@ -746,5 +788,6 @@ class DroneRos1Bridge:
                     "results": results,
                     "sequence_error_action": "hold",
                     "safety_hold": hold_result,
+                    "error": self._error_text(result, "Sequence step failed"),
                 }
         return {"success": True, "results": results}
