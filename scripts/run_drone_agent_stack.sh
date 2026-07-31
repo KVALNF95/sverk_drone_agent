@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CATKIN_WS="${CATKIN_WS:-$(cd "$REPO_ROOT/../.." && pwd)}"
 ENV_FILE="${SVERK_DRONE_AGENT_ENV_FILE:-$HOME/.sverk_drone_agent_env.sh}"
-AGENT_MODE="${DRONE_AGENT_MODE:-agent}"
 
 source /opt/ros/noetic/setup.bash
 source "$CATKIN_WS/devel/setup.bash"
@@ -15,6 +14,9 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 78
 fi
 source "$ENV_FILE"
+set -u
+
+AGENT_MODE="${DRONE_AGENT_MODE:-agent}"
 
 # Hostname-based ROS addressing keeps autostart working after DHCP changes.
 export ROS_MASTER_URI="${ROS_MASTER_URI:-http://127.0.0.1:11311}"

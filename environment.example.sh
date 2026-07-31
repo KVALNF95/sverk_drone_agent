@@ -70,17 +70,17 @@ export DRONE_ALLOW_LAND_WHEN_DISABLED='1'
 export DRONE_LAND_ON_SEQUENCE_ERROR='0'
 
 # Pseudo-agent (rule-based, no LLM)
-export PSEUDO_TAKEOFF_HEIGHT_M='0.8'
+export PSEUDO_TAKEOFF_HEIGHT_M='1.3'   # pseudo-agent chess uses this for takeoff AND flight alt
 export PSEUDO_TAKEOFF_SPEED_MPS='0.15'
 export PSEUDO_MOVE_SPEED_MPS='0.5'
 export PSEUDO_LAND_WAIT_UNTIL_DISARMED='1'
 export CHESS_MAP_FRAME_ID='aruco_map'
 export CHESS_MAP_ORIGIN_X_M='0.0'
 export CHESS_MAP_ORIGIN_Y_M='0.0'
-export CHESS_CELL_SIZE_M='0.40'
-export CHESS_TAKEOFF_HEIGHT_M='0.8'
-export CHESS_FLIGHT_ALTITUDE_M='0.8'
+export CHESS_CELL_SIZE_M='0.4356'   # pitch of the aruco chess board (measure your board)
+export CHESS_TAKEOFF_HEIGHT_M='1.3'
+export CHESS_FLIGHT_ALTITUDE_M='1.3'   # higher = more markers in view, less drift
 export CHESS_MAP_WAIT_TIMEOUT_S='10'
-export CHESS_ARRIVAL_TOLERANCE_M='0.20'
+export CHESS_ARRIVAL_TOLERANCE_M='0.12'
 export CHESS_SETTLE_DURATION_S='2.0'
 export CHESS_SETTLE_TIMEOUT_S='10.0'

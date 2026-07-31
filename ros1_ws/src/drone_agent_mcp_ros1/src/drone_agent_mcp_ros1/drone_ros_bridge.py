@@ -797,8 +797,15 @@ class DroneRos1Bridge:
         timeout = float(clamp(finite_float(timeout_s, "timeout_s"), 1.0, 300.0))
         deadline = time.monotonic() + timeout
         while not rospy.is_shutdown() and time.monotonic() < deadline:
-            telemetry = self.drone_get_telemetry("map")
-            if telemetry.get("success") and telemetry.get("armed") is False:
+            # `armed` arrives as a float (0.0 disarmed / 1.0 armed) from this
+            # telemetry pipeline, so `armed is False` never matched and the loop
+            # always ran the full timeout, reporting a failed landing after a
+            # successful one. Use a truthiness check guarded against a missing
+            # field. The "body" frame is marker-independent, so the read does not
+            # break when the map/aruco frame is momentarily unavailable near ground.
+            telemetry = self.drone_get_telemetry("body")
+            armed = telemetry.get("armed")
+            if telemetry.get("success") and armed is not None and not armed:
                 response["disarmed"] = True
                 return response
             rospy.sleep(0.5)
